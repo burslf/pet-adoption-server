@@ -12,7 +12,8 @@ const petSchema = new mongoose.Schema({
     'hypoallergenic': Boolean,
     'dietary restrictions': String,
     'breed': String,
-    'owner': String
+    'owner': String,
+    'keywords' : Array
   });
 
 const Pet = mongoose.model('Pet', petSchema)

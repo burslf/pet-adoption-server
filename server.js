@@ -10,6 +10,7 @@ const mongoose = require("mongoose");
 const bodyParser = require("body-parser");
 const User = require("./userModel.js");
 const Pet = require("./petModel");
+const { stat } = require("fs");
 
 // Init MongoDB database
 const dbURI =
@@ -37,13 +38,36 @@ app.get("/users", authenticateToken, (req, res) => {
 // Edit user profile
 app.post("/user/:id", (req, res) => {
   User.findOne({_id: req.params.id}, async (err, doc) => {
+    if(req.body.firstname == doc.firstname && req.body.lastname == doc.lastname && req.body.phone == doc.phone && req.body.bio == doc.bio) {
+      res.status(209).send("No changes has been made.")
+      return
+    }
     doc.firstname = req.body.firstname
     doc.lastname = req.body.lastname
     doc.phone = req.body.phone
     doc.firstname = req.body.firstname
     doc.bio = req.body.bio
     await doc.save()
+    res.send("Edited with success.")
   })
+})
+
+// Edit user password
+app.post("/user/:id/password", async (req, res) => {
+  if (req.body.password.length == 0 && req.body.confirmPassword.length ==0) {
+    res.status(409).send("Password can't be empty.")
+    return
+  } 
+  if(req.body.password == req.body.confirmPassword) {
+    const hashedPassword = await bcrypt.hash(req.body.password, 10);
+    User.findOne({_id: req.params.id}, async (err, doc) => {
+      doc.password = hashedPassword
+      await doc.save()
+      res.send("Password changed succesfully.")
+    })
+  } else {
+    res.status(409).send("Passwords don't match.")
+  }
 })
 
 // Get user by id
@@ -68,10 +92,14 @@ app.post("/signup", async (req, res) => {
 
   User.find({ email: req.body.email }, (err, doc) => {
     if (doc.length == 0) {
+      if(req.body.password == req.body.confirmPassword) {
       user.save().then((result) => res.send(result));
+      } else {
+        res.status(409).send("passwords don't match")
+      }
     } else {
-      res.send("email already exists");
-    }
+        res.status(409).send("email already exists");
+      } 
   });
 });
 
@@ -86,7 +114,7 @@ app.post("/login", (req, res) => {
         if (await bcrypt.compare(req.body.password, doc[0].password)) {
             const user = { email: req.body.email, isAdmin: doc[0].isAdmin };
             const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET);
-            res.send({accessToken, id: doc[0]._id})
+            res.send({accessToken, id: doc[0]._id, isAdmin: user.isAdmin})
         } else {
             res.sendStatus(403)
         }
@@ -102,29 +130,62 @@ app.post("/pet", async (req, res) => {
   console.log(decoded)
   if(decoded.isAdmin) {
     const pet = new Pet(req.body.data)
+    pet.keywords = {
+      name: getKeywords(req.body.data.name),
+    }
     await pet.save().then(result => res.send(result))
   } else {
     res.status(403).send('Not admin')
   }
 })
 
-// Get pet + query pet
-app.get("/pet", (req,res) => {
-  const name = req.query.name
-  const adopted = req.query.adopted
-  const type = req.query.type
-  const height = req.query.height
-  const weight = req.query.weight
+// Get all pets
+app.get('/pets', (req, res) => {
+  Pet.find({}, (err, doc) => {
+    res.json(doc)
+  })
+})
 
-  Pet.find({$or: [{name: name}, {type:type}, {height:height}, {weight: weight}]}, (err, doc) => {
-    if(doc.length == 0) 
-    {
-      Pet.find({}, (err,doc) => res.json(doc))
-    } else { 
+// Advanced query pet
+app.get("/pet/advanced-search", (req,res) => {
+  const name = req.query.name
+  const status = req.query.status
+  const type = req.query.type
+  const minHeight = req.query.minHeight
+  const maxHeight = req.query.maxHeight
+  
+  const response = []
+
+  Pet.find({$and: [{name: name}, {type: type}]}, async (err,doc) => {
+    if (doc.length == 0) {
+      await Pet.find({$and: [{type: type}, {status: status}]}, (err, type) => {
+        res.json(type)
+      })
+    } else {
+      doc.forEach(async pet => {
+        if((pet.height >= minHeight && pet.height <= maxHeight) && pet.status == status) {
+          await response.push(pet)
+        }
+      })
+      response.length > 0 ? res.json(response) : res.json({sorry: "no result found"})
+    }
+  })
+})
+
+// Basic query pet
+app.get('/pet/basic-search', (req,res) => {
+  const type = req.query.type
+  const name = req.query.name
+
+  Pet.find({$and: [{type: type}, {name: name}]}, (err, doc) => {
+    if(doc.length == 0) {
+      Pet.find({type: type}, (err, type) => {
+        res.json(type)
+      })
+    } else {
       res.json(doc)
     }
-    })
-  
+  })
 })
 
 // Get pet by id
@@ -261,3 +322,16 @@ function authenticateToken(req, res, next) {
 app.listen(port, () => {
   console.log("listening...");
 });
+
+
+function getKeywords (str) {
+  var i,
+    j,
+    result = [];
+  for (i = 0; i < str.length; i++) {
+    for (j = i + 1; j < str.length + 1; j++) {
+      result.push(str.slice(i, j).toLowerCase());
+    }
+  }
+  return result;
+};
