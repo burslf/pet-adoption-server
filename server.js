@@ -180,12 +180,13 @@ const crocoName = ['Ali', 'Gator']
   }
 })
 
-// console.log(req.body.data)
-  
-
+// Delete pet(req.body.data)
 app.post('/delete/:id', (req, res) => {
   Pet.find({_id: req.params.id}, (err, doc) => {
   }).deleteOne(() => res.send(`${req.params.id} is deleted`))
+})
+app.get('/deletepet', (req, res) => {
+  res.send('hello')
 })
 
 // Get all pets
