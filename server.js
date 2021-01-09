@@ -11,6 +11,8 @@ const bodyParser = require("body-parser");
 const User = require("./userModel.js");
 const Pet = require("./petModel");
 const { stat } = require("fs");
+const {Storage} = require('@google-cloud/storage');
+const { format } = require("path");
 
 // Init MongoDB database
 const dbURI =
@@ -27,6 +29,21 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Define Google storage 
+const gc = new Storage({
+  keyFilename: path.join(__dirname, "./public/pet-adoption-300714-9d6b887fd9b7.json"),
+  projectId: "pet-adoption-300714"
+})
+const petAdoptionBucket = gc.bucket('pet-adoption')
+
+// Multer
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 2048 * 2048
+  }
+})
 
 // Get users
 app.get("/users", authenticateToken, (req, res) => {
@@ -124,19 +141,51 @@ app.post("/login", (req, res) => {
 });
 
 // Add new pet (only admin)
-app.post("/pet", async (req, res) => {
-  // you herepets
+app.post("/pet", upload.single('file'), async (req, res, next) => {
   const decoded = jwt.decode(req.body.isAdmin);
   console.log(decoded)
+  console.log(req.body['name'])
   if(decoded.isAdmin) {
-    const pet = new Pet(req.body.data)
-    pet.keywords = {
-      name: getKeywords(req.body.data.name),
-    }
+  if(!req.file) {
+    res.status(400).send('No file uploaded')
+  }
+  const blob = petAdoptionBucket.file(req.file.originalname)
+  const blobStream = blob.createWriteStream()
+  blobStream.on('error', err => {
+    next(err)
+  })
+
+  blobStream.on('finish', () => {
+    // The public URL can be used to directly access the file via HTTP.
+    const publicUrl = `https://storage.googleapis.com/${petAdoptionBucket.name}/${blob.name}`
+    res.status(200).send(publicUrl);
+  });
+
+  blobStream.end(req.file.buffer)
+const crocoName = ['Ali', 'Gator']
+  for(let i=0; i<crocoName.length; i++) {
+    const pet = new Pet(req.body)
+    console.log(pet.keywords)
     await pet.save().then(result => res.send(result))
+    pet.name = crocoName[i]
+    pet.keywords.push({
+      name: getKeywords(req.body['name']),
+    })
+    pet.picture = `https://storage.googleapis.com/${petAdoptionBucket.name}/${blob.name}`
+    await pet.save().then(result => res.send(result))
+  }
+
   } else {
     res.status(403).send('Not admin')
   }
+})
+
+// console.log(req.body.data)
+  
+
+app.post('/delete/:id', (req, res) => {
+  Pet.find({_id: req.params.id}, (err, doc) => {
+  }).deleteOne(() => res.send(`${req.params.id} is deleted`))
 })
 
 // Get all pets
@@ -299,11 +348,10 @@ app.put("/pet/:id", (req, res) => {
         doc[title] = req.body.data[title]
         await doc.save()
       } 
-      console.log(doc)
       res.json(doc)
     }) 
   } else {
-    res.json({error: "Not admin"})
+    res.send("Not admin")
   }
 })
 

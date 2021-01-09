@@ -10,7 +10,7 @@ const petSchema = new mongoose.Schema({
     'color': String,
     'bio': String,
     'hypoallergenic': Boolean,
-    'dietary restrictions': String,
+    'dietaryRestrictions': String,
     'breed': String,
     'owner': String,
     'keywords' : Array
